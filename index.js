@@ -9,36 +9,40 @@ const client = new Client({
 });
 
 client.once("ready", () => {
-  console.log(`✅ Bot online as ${client.user.tag}`);
+  console.log(`Bot online as ${client.user.tag}`);
 });
+
+const processed = new Set();
 
 client.on("messageCreate", async (message) => {
   try {
     if (!message.author.bot) return;
+    if (message.author.id === client.user.id) return;
+
+    if (processed.has(message.id)) return;
+    processed.add(message.id);
 
     const text = [
       message.content || "",
       ...message.embeds.map(e => e.description || "")
     ].join("\n");
 
-    // Match vouch line
     const match = text.match(/\+rep\s+<@!?\d+>\s+\[\$?[\d.]+\].+/i);
     if (!match) return;
 
-    const vouchLine = match[0];
+    let vouchLine = match[0];
 
-    // Extract user ID from mention
+    // REMOVE unwanted quotes if any
+    vouchLine = vouchLine.replace(/[`"'']/g, "").trim();
+
     const userIdMatch = vouchLine.match(/<@!?(\d+)>/);
     if (!userIdMatch) return;
 
     const userId = userIdMatch[1];
 
-    // Send vouch (copyable)
-    await message.channel.send(vouchLine);
-
-    // Send instruction message with ping
+    // SINGLE CLEAN MESSAGE
     await message.channel.send(
-      `<@${userId}> copy paste this in this channel <#1485300520473067771>`
+      `${vouchLine}\n<@${userId}> copy paste this in this channel <#1485300520473067771>`
     );
 
   } catch (err) {
