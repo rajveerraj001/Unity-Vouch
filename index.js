@@ -1,104 +1,118 @@
-const {
-  Client,
-  GatewayIntentBits,
-  Partials,
-  EmbedBuilder
-} = require("discord.js");
+const { Client, GatewayIntentBits, Partials } = require("discord.js");
+
+const VOUCH_CHANNEL_ID = "1485300520473067771";
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
   ],
-  partials: [
-    Partials.Channel,
-    Partials.Message
-  ]
+  partials: [Partials.Channel, Partials.Message]
 });
-
-const TOKEN = process.env.TOKEN;
-
-const VOUCH_CHANNEL_ID = "1485300520473067771";
 
 client.once("ready", () => {
-  console.log(`${client.user.tag} is online`);
+  console.log(`Bot online as ${client.user.tag}`);
 });
+
+const processed = new Set();
+
+function cleanText(text) {
+  return String(text || "")
+    .replace(/[`"'“”‘’]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function findClientId(message, vouchLine) {
+  const exchangerIdMatch = vouchLine.match(/<@!?(\d+)>/);
+  const exchangerId = exchangerIdMatch ? exchangerIdMatch[1] : null;
+
+  const mentionedUsers = [...message.mentions.users.values()];
+
+  for (const user of mentionedUsers) {
+    if (user.id !== exchangerId && user.id !== message.client.user.id) {
+      return user.id;
+    }
+  }
+
+  const channelName = message.channel.name || "";
+  let possibleName = "";
+
+  const claimedMatch = channelName.match(/claimed-by-(.+)/i);
+  if (claimedMatch) {
+    possibleName = claimedMatch[1];
+  }
+
+  if (!possibleName) return null;
+
+  possibleName = possibleName.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  try {
+    const members = await message.guild.members.fetch();
+
+    const found = members.find(member => {
+      const username = member.user.username.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const displayName = member.displayName.toLowerCase().replace(/[^a-z0-9]/g, "");
+      return username.includes(possibleName) || displayName.includes(possibleName);
+    });
+
+    return found ? found.user.id : null;
+  } catch {
+    return null;
+  }
+}
 
 client.on("messageCreate", async (message) => {
+  try {
+    if (!message.author.bot) return;
+    if (message.author.id === client.user.id) return;
+    if (processed.has(message.id)) return;
 
-  if (message.author.bot) return;
+    processed.add(message.id);
 
-  if (!message.content.toLowerCase().startsWith(",vouch")) return;
+    const embedText = message.embeds.map(embed => {
+      const fields = embed.fields?.map(f => `${f.name} ${f.value}`).join("\n") || "";
+      return [
+        embed.title || "",
+        embed.description || "",
+        fields,
+        embed.footer?.text || ""
+      ].join("\n");
+    }).join("\n");
 
-  const clientUser = message.mentions.users.first();
+    const fullText = `${message.content || ""}\n${embedText}`;
 
-  if (!clientUser) {
-    return message.reply("Mention a client.");
-  }
+    const match = fullText.match(/\+rep\s+<@!?\d+>\s+\[\$?[\d.]+\]\s+[A-Z0-9\s]+TO\s+[A-Z0-9\s]+/i);
+    if (!match) return;
 
-  const exchanger = message.author;
+    const vouchLine = cleanText(match[0]);
 
-  // amount detect
-  let amount = "$0";
-
-  const amountMatch =
-    message.content.match(/\$(\d+(\.\d+)?)/i) ||
-    message.content.match(/(\d+(\.\d+)?)\$/i);
-
-  if (amountMatch) {
-    amount = `$${amountMatch[1]}`;
-  }
-
-  // clean text
-  const cleaned = message.content
-    .replace(",vouch", "")
-    .replace(/<@!?\d+>/g, "")
-    .replace(/\$(\d+(\.\d+)?)/i, "")
-    .replace(/(\d+(\.\d+)?)\$/i, "")
-    .trim();
-
-  const split = cleaned.split(/\s+to\s+/i);
-
-  let fromType = "EXCHANGE";
-  let toType = "";
-
-  if (split.length >= 2) {
-    fromType = split[0].trim().toUpperCase();
-    toType = split[1].trim().toUpperCase();
-  }
-
-  const vouchText =
-    `+rep ${exchanger} [${amount}] ${fromType} TO ${toType}`;
-
-  // EMBED
-  const embed = new EmbedBuilder()
-    .setColor("#a020f0")
-    .setAuthor({
-      name: "Unity Exchange"
-    })
-    .setTitle("Thank You!")
-    .setDescription(
-`Thank you for using our service!
-We hope you liked your exchange experience.
-
-Copy the line below and paste it in <#${VOUCH_CHANNEL_ID}> to vouch:
-
-\`\`\`
-${vouchText}
-\`\`\``
+    const recentMessages = await message.channel.messages.fetch({ limit: 15 });
+    const alreadySent = recentMessages.some(m =>
+      m.author.id === client.user.id && m.content.includes(vouchLine)
     );
 
-  // FIRST MESSAGE
-  await message.channel.send({
-    embeds: [embed]
-  });
+    if (alreadySent) return;
 
-  // SECOND MESSAGE
-  await message.channel.send(
-    `${clientUser} copy paste this in this channel <#${VOUCH_CHANNEL_ID}>`
-  );
+    const clientId = await findClientId(message, vouchLine);
 
+    await message.channel.send(vouchLine);
+
+    if (clientId) {
+      await message.channel.send(
+        `<@${clientId}> copy paste this in this channel <#${VOUCH_CHANNEL_ID}>`
+      );
+    } else {
+      await message.channel.send(
+        `Client copy paste this in this channel <#${VOUCH_CHANNEL_ID}>`
+      );
+    }
+
+  } catch (err) {
+    console.log("Error:", err);
+  }
 });
 
-client.login(TOKEN);
+client.login(process.env.TOKEN);
