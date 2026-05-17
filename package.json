@@ -1,7 +1,6 @@
 {
-  "name": "unity-vouch",
+  "name": "vouch-bot",
   "version": "1.0.0",
-  "description": "Discord Vouch Bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
