@@ -1,7 +1,8 @@
 const {
   Client,
   GatewayIntentBits,
-  Partials
+  Partials,
+  EmbedBuilder
 } = require("discord.js");
 
 const client = new Client({
@@ -20,102 +21,83 @@ const TOKEN = process.env.TOKEN;
 
 const VOUCH_CHANNEL_ID = "1485300520473067771";
 
-const cooldown = new Set();
-
 client.once("ready", () => {
   console.log(`${client.user.tag} is online`);
 });
 
-function clean(text) {
-  return String(text || "")
-    .replace(/[`"'']/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 client.on("messageCreate", async (message) => {
 
-  try {
+  if (message.author.bot) return;
 
-    if (message.author.bot) return;
+  if (!message.content.toLowerCase().startsWith(",vouch")) return;
 
-    const content = clean(message.content);
+  const clientUser = message.mentions.users.first();
 
-    if (!content.toLowerCase().startsWith(",vouch")) return;
+  if (!clientUser) {
+    return message.reply("Mention a client.");
+  }
 
-    // anti duplicate
-    if (cooldown.has(message.id)) return;
-    cooldown.add(message.id);
+  const exchanger = message.author;
 
-    // client detect
-    const clientUser = message.mentions.users.first();
+  // amount detect
+  let amount = "$0";
 
-    if (!clientUser) {
-      return message.reply("Mention a client.");
-    }
+  const amountMatch =
+    message.content.match(/\$(\d+(\.\d+)?)/i) ||
+    message.content.match(/(\d+(\.\d+)?)\$/i);
 
-    // amount detect
-    let amount = "$0";
+  if (amountMatch) {
+    amount = `$${amountMatch[1]}`;
+  }
 
-    const amountMatch =
-      content.match(/\$(\d+(\.\d+)?)/i) ||
-      content.match(/(\d+(\.\d+)?)\$/i);
+  // clean text
+  const cleaned = message.content
+    .replace(",vouch", "")
+    .replace(/<@!?\d+>/g, "")
+    .replace(/\$(\d+(\.\d+)?)/i, "")
+    .replace(/(\d+(\.\d+)?)\$/i, "")
+    .trim();
 
-    if (amountMatch) {
-      amount = `$${amountMatch[1]}`;
-    }
+  const split = cleaned.split(/\s+to\s+/i);
 
-    // remove command / mention / amount
-    const cleaned = content
-      .replace(",vouch", "")
-      .replace(/<@!?\d+>/g, "")
-      .replace(/\$(\d+(\.\d+)?)/i, "")
-      .replace(/(\d+(\.\d+)?)\$/i, "")
-      .trim();
+  let fromType = "EXCHANGE";
+  let toType = "";
 
-    // detect TO
-    const split = cleaned.split(/\s+to\s+/i);
+  if (split.length >= 2) {
+    fromType = split[0].trim().toUpperCase();
+    toType = split[1].trim().toUpperCase();
+  }
 
-    let fromType = "EXCHANGE";
-    let toType = "";
+  const vouchText =
+    `+rep ${exchanger} [${amount}] ${fromType} TO ${toType}`;
 
-    if (split.length >= 2) {
-      fromType = split[0].trim().toUpperCase();
-      toType = split[1].trim().toUpperCase();
-    }
+  // EMBED
+  const embed = new EmbedBuilder()
+    .setColor("#a020f0")
+    .setAuthor({
+      name: "Unity Exchange"
+    })
+    .setTitle("Thank You!")
+    .setDescription(
+`Thank you for using our service!
+We hope you liked your exchange experience.
 
-    // exchanger
-    const exchanger = message.author;
+Copy the line below and paste it in <#${VOUCH_CHANNEL_ID}> to vouch:
 
-    const finalVouch =
-      `+rep ${exchanger} [${amount}] ${fromType} TO ${toType}`;
-
-    // anti duplicate send
-    const recentMessages =
-      await message.channel.messages.fetch({
-        limit: 10
-      });
-
-    const alreadySent =
-      recentMessages.some(
-        m =>
-          m.author.id === client.user.id &&
-          m.content === finalVouch
-      );
-
-    if (alreadySent) return;
-
-    // FIRST MESSAGE
-    await message.channel.send(finalVouch);
-
-    // SECOND MESSAGE
-    await message.channel.send(
-      `${clientUser} copy paste this in this channel <#${VOUCH_CHANNEL_ID}>`
+\`\`\`
+${vouchText}
+\`\`\``
     );
 
-  } catch (err) {
-    console.log(err);
-  }
+  // FIRST MESSAGE
+  await message.channel.send({
+    embeds: [embed]
+  });
+
+  // SECOND MESSAGE
+  await message.channel.send(
+    `${clientUser} copy paste this in this channel <#${VOUCH_CHANNEL_ID}>`
+  );
 
 });
 
