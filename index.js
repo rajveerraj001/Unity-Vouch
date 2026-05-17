@@ -4,14 +4,11 @@ const {
   Partials
 } = require("discord.js");
 
-const VOUCH_CHANNEL_ID = "1485300520473067771";
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.MessageContent
   ],
   partials: [
     Partials.Channel,
@@ -19,85 +16,107 @@ const client = new Client({
   ]
 });
 
+const TOKEN = process.env.TOKEN;
+
+const VOUCH_CHANNEL_ID = "1485300520473067771";
+
+const cooldown = new Set();
+
 client.once("ready", () => {
   console.log(`${client.user.tag} is online`);
 });
 
-const cooldown = new Set();
-
-function cleanText(text) {
+function clean(text) {
   return String(text || "")
-    .replace(/[`"'“”‘’]/g, "")
+    .replace(/[`"'']/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 client.on("messageCreate", async (message) => {
+
   try {
+
     if (message.author.bot) return;
 
-    const content = cleanText(message.content);
+    const content = clean(message.content);
 
     if (!content.toLowerCase().startsWith(",vouch")) return;
 
+    // anti duplicate
     if (cooldown.has(message.id)) return;
     cooldown.add(message.id);
 
-    const exchanger = message.mentions.users.first();
+    // client detect
+    const clientUser = message.mentions.users.first();
 
-    if (!exchanger) {
-      return message.reply("Mention exchanger properly.");
+    if (!clientUser) {
+      return message.reply("Mention a client.");
     }
 
-    const amountMatch = content.match(/\[\$\d+(?:\.\d+)?\]/i);
+    // amount detect
+    let amount = "$0";
 
-    const amount = amountMatch
-      ? amountMatch[0]
-      : "[$0]";
+    const amountMatch =
+      content.match(/\$(\d+(\.\d+)?)/i) ||
+      content.match(/(\d+(\.\d+)?)\$/i);
 
-    let exchangeType = "";
-
-    const typeMatch = content.match(/\]\s*(.+)$/i);
-
-    if (typeMatch && typeMatch[1]) {
-      exchangeType = typeMatch[1]
-        .replace(/i2c/gi, "")
-        .replace(/c2i/gi, "")
-        .replace(/i2i/gi, "")
-        .replace(/c2c/gi, "")
-        .trim()
-        .toUpperCase();
+    if (amountMatch) {
+      amount = `$${amountMatch[1]}`;
     }
 
-    if (!exchangeType) {
-      exchangeType = "EXCHANGE";
+    // remove command / mention / amount
+    const cleaned = content
+      .replace(",vouch", "")
+      .replace(/<@!?\d+>/g, "")
+      .replace(/\$(\d+(\.\d+)?)/i, "")
+      .replace(/(\d+(\.\d+)?)\$/i, "")
+      .trim();
+
+    // detect TO
+    const split = cleaned.split(/\s+to\s+/i);
+
+    let fromType = "EXCHANGE";
+    let toType = "";
+
+    if (split.length >= 2) {
+      fromType = split[0].trim().toUpperCase();
+      toType = split[1].trim().toUpperCase();
     }
+
+    // exchanger
+    const exchanger = message.author;
 
     const finalVouch =
-      `+rep <@${message.author.id}> ${amount} ${exchangeType}`;
+      `+rep ${exchanger} [${amount}] ${fromType} TO ${toType}`;
 
+    // anti duplicate send
     const recentMessages =
       await message.channel.messages.fetch({
         limit: 10
       });
 
-    const alreadyExists = recentMessages.some(
-      m =>
-        m.author.id === client.user.id &&
-        m.content === finalVouch
-    );
+    const alreadySent =
+      recentMessages.some(
+        m =>
+          m.author.id === client.user.id &&
+          m.content === finalVouch
+      );
 
-    if (alreadyExists) return;
+    if (alreadySent) return;
 
+    // FIRST MESSAGE
     await message.channel.send(finalVouch);
 
+    // SECOND MESSAGE
     await message.channel.send(
-      `${exchanger} copy paste this in this channel <#${VOUCH_CHANNEL_ID}>`
+      `${clientUser} copy paste this in this channel <#${VOUCH_CHANNEL_ID}>`
     );
 
   } catch (err) {
     console.log(err);
   }
+
 });
 
-client.login(process.env.TOKEN);
+client.login(TOKEN);
